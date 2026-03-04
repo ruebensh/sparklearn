@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import pdfParse from 'pdf-parse';
+import * as pdfParse from 'pdf-parse';
 import Groq from 'groq-sdk';
 import LessonPack from '../models/LessonPack.js';
 import Progress from '../models/Progress.js';

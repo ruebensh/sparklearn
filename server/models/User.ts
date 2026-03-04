@@ -10,35 +10,33 @@ const userSchema = new mongoose.Schema({
   refreshToken: { type: String, default: null },
 
   // --- PARENT ONLY FIELDS ---
-  // Parent email bilan ro'yxatdan o'tadi
   email: {
     type: String,
     lowercase: true,
     trim: true,
-    sparse: true, // null bo'lsa ham unique ishlaydi
-    unique: true,
+    sparse: true, // null bo'lsa ham unique indeks ishlaydi
+    unique: true, // Bu avtomatik ravishda indeks yaratadi
   },
-  phone: { type: String, trim: true },         // Telefon raqam (ixtiyoriy)
-  region: { type: String, trim: true },         // Hudud
-  occupation: { type: String, trim: true },     // Kasb
-  // Parent yaratgan studentlar ro'yxati
+  phone: { type: String, trim: true },
+  region: { type: String, trim: true },
+  occupation: { type: String, trim: true },
+  
   children: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
   }],
 
   // --- STUDENT ONLY FIELDS ---
-  // Student username bilan kiradi (parent yaratadi)
   username: {
     type: String,
     lowercase: true,
     trim: true,
     sparse: true,
-    unique: true,
+    unique: true, // Bu ham avtomatik ravishda indeks yaratadi
   },
   age: { type: Number, min: 3, max: 25 },
-  grade: { type: String, trim: true },          // Sinf: "5", "6" va hokazo
-  // Student qaysi parentga tegishli
+  grade: { type: String, trim: true },
+  
   parent: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -59,11 +57,14 @@ const userSchema = new mongoose.Schema({
   offlineData: { type: mongoose.Schema.Types.Mixed, default: null },
   lastSyncedAt: { type: Date, default: null },
 
-}, { timestamps: true });
+}, { 
+  timestamps: true,
+  toJSON: { virtuals: true }, 
+  toObject: { virtuals: true } 
+});
 
 // --- INDEXES ---
-userSchema.index({ email: 1 }, { sparse: true });
-userSchema.index({ username: 1 }, { sparse: true });
+// Faqat parent maydoni uchun indeks qoldiramiz (chunki u yuqorida unique emas)
 userSchema.index({ parent: 1 });
 
 // --- VIRTUAL: student uchun displayName ---
