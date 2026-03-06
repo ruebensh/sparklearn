@@ -15,6 +15,11 @@ export default function Auth() {
   const [loginType, setLoginType] = useState<LoginType>('parent');
   const [step, setStep] = useState<RegisterStep>(1);
   const [loading, setLoading] = useState(false);
+  const [otpMode, setOtpMode] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [pendingEmail, setPendingEmail] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
   const navigate = useNavigate();
 
@@ -67,10 +72,8 @@ export default function Auth() {
         });
         const data = await res.json();
         if (!data.success) { setErrorMsg(data.message || 'Registration failed'); return; }
-        localStorage.setItem('accessToken', data.data.accessToken);
-        localStorage.setItem('refreshToken', data.data.refreshToken);
-        localStorage.setItem('user', JSON.stringify(data.data.user));
-        navigate('/parent-dashboard');
+        setPendingEmail(form.email);
+        setOtpMode(true);
 
       } else {
         const body = loginType === 'parent'
@@ -96,10 +99,113 @@ export default function Auth() {
     }
   };
 
+  const handleVerifyOTP = async () => {
+    if (otpCode.length !== 6) { setErrorMsg('Enter 6-digit code'); return; }
+    setOtpLoading(true);
+    setErrorMsg('');
+    try {
+      const res = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: pendingEmail, otp: otpCode }),
+      });
+      const data = await res.json();
+      if (!data.success) { setErrorMsg(data.message || 'Invalid code'); return; }
+      localStorage.setItem('accessToken', data.data.accessToken);
+      localStorage.setItem('refreshToken', data.data.refreshToken);
+      localStorage.setItem('user', JSON.stringify(data.data.user));
+      navigate('/parent-dashboard');
+    } catch {
+      setErrorMsg('Network error');
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const handleResendOTP = async () => {
+    if (resendCooldown > 0) return;
+    try {
+      await fetch('/api/auth/resend-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: pendingEmail }),
+      });
+      setResendCooldown(60);
+      const timer = setInterval(() => {
+        setResendCooldown(prev => { if (prev <= 1) { clearInterval(timer); return 0; } return prev - 1; });
+      }, 1000);
+    } catch {}
+  };
+
   const inputClass = "w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white placeholder:text-[var(--color-muted)] focus:outline-none focus:border-[var(--color-amber)] transition-colors text-sm";
   const labelClass = "text-xs text-[var(--color-muted)] font-semibold uppercase tracking-wider mb-1.5 block";
 
   return (
+    <>
+    {otpMode && (
+      <div className="min-h-screen bg-[#0A1628] flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 rounded-2xl bg-[#F5A623]/10 border border-[#F5A623]/30 flex items-center justify-center mx-auto mb-4">
+              <span className="text-3xl">📧</span>
+            </div>
+            <h1 className="text-2xl font-bold text-white mb-2">Check your email</h1>
+            <p className="text-[#8892B0] text-sm">We sent a 6-digit code to</p>
+            <p className="text-[#F5A623] font-semibold mt-1">{pendingEmail}</p>
+          </div>
+
+          <div className="bg-[#112240] rounded-2xl p-8 border border-white/10 shadow-2xl">
+            {errorMsg && (
+              <div className="mb-4 bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
+                <span>⚠️</span> {errorMsg}
+              </div>
+            )}
+
+            <div className="mb-6">
+              <label className="text-xs text-[#8892B0] font-semibold uppercase tracking-wider mb-3 block">
+                Verification Code
+              </label>
+              <input
+                type="text"
+                maxLength={6}
+                placeholder="000000"
+                value={otpCode}
+                onChange={e => { setOtpCode(e.target.value.replace(/\D/g, '')); setErrorMsg(''); }}
+                className="w-full bg-white/5 border border-white/10 rounded-xl py-4 px-4 text-white text-center text-3xl font-bold tracking-[1rem] placeholder:text-white/20 focus:outline-none focus:border-[#F5A623] transition-colors"
+              />
+              <p className="text-[#8892B0] text-xs mt-2 text-center">Enter the 6-digit code from your email</p>
+            </div>
+
+            <button
+              onClick={handleVerifyOTP}
+              disabled={otpLoading || otpCode.length !== 6}
+              className="w-full bg-[#F5A623] hover:bg-[#FF5733] disabled:opacity-40 text-[#0A1628] font-bold py-3.5 rounded-xl transition-colors mb-4"
+            >
+              {otpLoading ? 'Verifying...' : 'Verify Email ✓'}
+            </button>
+
+            <div className="text-center">
+              <p className="text-[#8892B0] text-sm mb-2">Didn't receive the code?</p>
+              <button
+                onClick={handleResendOTP}
+                disabled={resendCooldown > 0}
+                className="text-[#F5A623] hover:text-[#FF5733] font-semibold text-sm disabled:opacity-40 transition-colors"
+              >
+                {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend Code'}
+              </button>
+            </div>
+
+            <button
+              onClick={() => { setOtpMode(false); setOtpCode(''); setErrorMsg(''); }}
+              className="w-full mt-4 text-[#8892B0] hover:text-white text-sm transition-colors"
+            >
+              ← Back to register
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    {!otpMode && (
     <div className="min-h-screen bg-[var(--color-navy)] flex items-center justify-center p-4 relative overflow-hidden">
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute w-96 h-96 rounded-full bg-[var(--color-amber)]/5 -top-20 -left-20 blur-3xl" />
@@ -344,5 +450,7 @@ export default function Auth() {
         </motion.div>
       </div>
     </div>
+    )}
+    </>
   );
 }

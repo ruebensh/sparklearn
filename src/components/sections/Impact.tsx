@@ -4,8 +4,8 @@ import { Trophy, Medal, Award, TrendingUp } from 'lucide-react';
 
 // Sample data - This will eventually come from your PostgreSQL/FastAPI backend
 const topThree = [
-  { name: 'Sardorbek', score: 98, region: 'Samarkand', rank: 2, avatar: '🥈', color: 'bg-slate-300' },
-  { name: 'Ilhomjon', score: 99, region: 'Tashkent', rank: 1, avatar: '🥇', color: 'bg-amber-400' },
+  { name: 'Ilhomjon', score: 98, region: 'Samarkand', rank: 2, avatar: '🥈', color: 'bg-slate-300' },
+  { name: 'Jaloliddin', score: 99, region: 'Tashkent', rank: 1, avatar: '🥇', color: 'bg-amber-400' },
   { name: 'Jasur', score: 95, region: 'Fergana', rank: 3, avatar: '🥉', color: 'bg-orange-400' },
 ];
 

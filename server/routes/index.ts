@@ -6,6 +6,7 @@ import lessonRoutes from './lessonRoutes.js';
 import progressRoutes from './progressRoutes.js';
 import assessmentRoutes from './assessmentRoutes.js';
 import contactRoutes from './contactRoutes.js';
+import studentRoutes from './studentRoutes.js';
 
 const router = express.Router();
 
@@ -19,5 +20,6 @@ router.use('/lessons', lessonRoutes);
 router.use('/progress', progressRoutes);
 router.use('/assessments', assessmentRoutes);
 router.use('/contact', contactRoutes);
+router.use('/student', studentRoutes);
 
 export default router;

@@ -7,6 +7,9 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true, minlength: 6 },
   language: { type: String, default: 'en' },
   isVerified: { type: Boolean, default: false },
+  isVerified: { type: Boolean, default: false },
+  otpCode: { type: String, default: null },
+  otpExpires: { type: Date, default: null },
   refreshToken: { type: String, default: null },
 
   // --- PARENT ONLY FIELDS ---
@@ -34,7 +37,7 @@ const userSchema = new mongoose.Schema({
     sparse: true,
     unique: true, // Bu ham avtomatik ravishda indeks yaratadi
   },
-  age: { type: Number, min: 3, max: 25 },
+  age: { type: Number, min: 3, max: 100 },
   grade: { type: String, trim: true },
   
   parent: {

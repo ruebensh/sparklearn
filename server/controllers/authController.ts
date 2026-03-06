@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import { success, error } from '../utils/apiResponse.js';
+import { sendOTPEmail } from '../utils/emailService.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'crisis-classroom-secret-key';
 const REFRESH_SECRET = process.env.REFRESH_TOKEN_SECRET || 'crisis-classroom-refresh-secret';
@@ -28,21 +29,22 @@ export const register = async (req: Request, res: Response) => {
     const existing = await User.findOne({ email });
     if (existing) return error(res, 'This email is already registered', 409);
 
+    // OTP yaratish
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 daqiqa
     const hashedPassword = await bcrypt.hash(password, 12);
-
     const parent = await User.create({
       name, email, password: hashedPassword,
       role: 'parent', phone, region, occupation,
+      otpCode, otpExpires, isVerified: false,
     });
 
-    const { accessToken, refreshToken } = generateTokens(parent._id.toString(), 'parent');
-    parent.refreshToken = refreshToken;
-    await parent.save();
+    try { await sendOTPEmail(email, name, otpCode); } catch (e) { console.error('Email error:', e); }
 
     return success(res, {
-      accessToken, refreshToken,
+      requiresVerification: true, email,
       user: { id: parent._id, name: parent.name, email: parent.email, role: parent.role },
-    }, 'Parent account created successfully', 201);
+    }, 'Account created. Please verify your email.', 201);
 
   } catch (err: any) {
     console.error('Register error:', err);
@@ -100,7 +102,8 @@ export const login = async (req: Request, res: Response) => {
 export const createStudent = async (req: Request, res: Response) => {
   try {
     const { name, username, password, age, grade } = req.body;
-    // @ts-ignore
+    console.log('CREATE STUDENT BODY:', req.body);
+    console.log('PARENT ID:', req.user?.id);
     const parentId = req.user?.id;
 
     if (!name || !username || !password)
@@ -117,6 +120,10 @@ export const createStudent = async (req: Request, res: Response) => {
     const parent = await User.findById(parentId);
     if (!parent || parent.role !== 'parent')
       return error(res, 'Only parents can create student accounts', 403);
+
+    // OTP yaratish
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 daqiqa
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
@@ -181,5 +188,102 @@ export const refreshToken = async (req: Request, res: Response) => {
     return success(res, { accessToken, refreshToken: newRefreshToken }, 'Token refreshed');
   } catch (err: any) {
     return error(res, 'Invalid or expired refresh token', 401);
+  }
+};
+
+// GET /api/auth/my-children  →  Parent o'z bolalarini ko'radi
+export const getMyChildren = async (req: Request, res: Response) => {
+  try {
+    // @ts-ignore
+    const parentId = req.user?.id;
+    const parent = await User.findById(parentId)
+      .populate('children', 'name username age grade currentLevel createdAt');
+    if (!parent) return error(res, 'Parent not found', 404);
+    return success(res, { children: parent.children || [] });
+  } catch (err: any) {
+    return error(res, 'Failed to fetch children', 500);
+  }
+};
+
+
+// DELETE /api/auth/delete-student/:studentId
+export const deleteStudent = async (req: Request, res: Response) => {
+  try {
+    // @ts-ignore
+    const parentId = req.user?.id;
+    const { studentId } = req.params;
+
+    const parent = await User.findById(parentId);
+    if (!parent) return error(res, 'Parent not found', 404);
+
+    const student = await User.findOne({ _id: studentId, parent: parentId, role: 'student' });
+    if (!student) return error(res, 'Student not found', 404);
+
+    // Parentning children ro'yxatidan olib tashlash
+    parent.children = (parent.children || []).filter(
+      (id: any) => id.toString() !== studentId
+    );
+    await parent.save();
+
+    // Studentni o'chirish
+    await student.deleteOne();
+
+    return success(res, null, 'Student account deleted');
+  } catch (err: any) {
+    return error(res, 'Failed to delete student', 500);
+  }
+};
+// POST /api/auth/verify-otp
+export const verifyOTP = async (req: Request, res: Response) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) return error(res, 'Email and OTP required', 400);
+
+    const user = await User.findOne({ email, role: 'parent' });
+    if (!user) return error(res, 'User not found', 404);
+    if (user.isVerified) return error(res, 'Already verified', 400);
+    if (!user.otpCode || !user.otpExpires) return error(res, 'No OTP found', 400);
+    if (new Date() > user.otpExpires) return error(res, 'OTP expired. Please register again.', 400);
+    if (user.otpCode !== otp.toString()) return error(res, 'Invalid OTP code', 400);
+
+    user.isVerified = true;
+    user.otpCode = null;
+    const { accessToken, refreshToken: refreshTokenValue } = generateTokens(user._id.toString(), user.role);
+    user.refreshToken = refreshTokenValue;
+    await user.save();
+
+    return success(res, {
+      accessToken,
+      refreshToken: refreshTokenValue,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+    }, 'Email verified successfully!');
+  } catch (err: any) {
+    console.error('Verify OTP error:', err);
+    return error(res, 'Verification failed', 500);
+  }
+};
+
+// POST /api/auth/resend-otp
+export const resendOTP = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email, role: 'parent' });
+    if (!user) return error(res, 'User not found', 404);
+    if (user.isVerified) return error(res, 'Already verified', 400);
+
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    user.otpCode = otpCode;
+    user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+
+    await sendOTPEmail(email, user.name, otpCode);
+    return success(res, null, 'OTP resent successfully');
+  } catch (err: any) {
+    return error(res, 'Failed to resend OTP', 500);
   }
 };

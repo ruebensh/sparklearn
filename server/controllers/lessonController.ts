@@ -2,12 +2,24 @@ import { Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import * as pdfParse from 'pdf-parse';
+
 import Groq from 'groq-sdk';
 import LessonPack from '../models/LessonPack.js';
 import Progress from '../models/Progress.js';
 import User from '../models/User.js';
 import { success, error } from '../utils/apiResponse.js';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
+const pdfParse = async (buffer: Buffer) => {
+  const data = new Uint8Array(buffer);
+  const doc = await pdfjsLib.getDocument({ data }).promise;
+  let text = '';
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map((item: any) => item.str).join(' ') + '\n';
+  }
+  return { text };
+};
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 

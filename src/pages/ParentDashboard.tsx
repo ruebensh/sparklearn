@@ -53,17 +53,13 @@ export default function ParentDashboard() {
   useEffect(() => { fetchChildren(); fetchLessons(); }, []);
 
   const fetchChildren = async () => {
-    const data = await API('/api/progress');
-    if (data.success) {
-      const uniqueChildren = [...new Map(
-        data.data.progress.map((p: any) => [p.user._id, p.user])
-      ).values()];
-      setChildren(uniqueChildren);
-    }
-    // Also get children from user profile
-    const userData = await API('/api/users/me');
-    if (userData.success?.children) setChildren(userData.success.children);
-  };
+  const token = localStorage.getItem('accessToken');
+  const res = await fetch('/api/auth/my-children', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json();
+  if (data.success) setChildren(data.data.children);
+};
 
   const fetchLessons = async () => {
     const data = await API('/api/lessons');
@@ -78,28 +74,47 @@ export default function ParentDashboard() {
   };
 
   const handleAddChild = async () => {
-    if (!childForm.name || !childForm.username || !childForm.password) {
-      notify('Name, username and password are required', 'error'); return;
-    }
-    setLoading(true);
-    const token = localStorage.getItem('accessToken');
-    const res = await fetch('/api/auth/create-student', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(childForm),
-    });
-    const data = await res.json();
-    setLoading(false);
-    if (data.success) {
-      notify('Student account created!');
-      setShowAddChild(false);
-      setChildForm({ name: '', username: '', password: '', age: '', grade: '' });
-      fetchChildren();
-    } else {
-      if (data.message?.includes('username')) setUsernameError(data.message);
-      else notify(data.message || 'Failed', 'error');
-    }
-  };
+  if (!childForm.name || !childForm.username || !childForm.password) {
+    notify('Name, username and password are required', 'error'); return;
+  }
+  setLoading(true);
+
+  // Token yangilash
+  const refreshToken = localStorage.getItem('refreshToken');
+  const refreshRes = await fetch('/api/auth/refresh-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  });
+  const refreshData = await refreshRes.json();
+  if (refreshData.success) {
+    localStorage.setItem('accessToken', refreshData.data.accessToken);
+  }
+
+  const token = localStorage.getItem('accessToken');
+  const res = await fetch('/api/auth/create-student', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      name: childForm.name,
+      username: childForm.username,
+      password: childForm.password,
+      age: childForm.age ? Number(childForm.age) : undefined,
+      grade: childForm.grade || undefined,
+    }),
+  });
+  const data = await res.json();
+  setLoading(false);
+  if (data.success) {
+    notify('Student account created!');
+    setShowAddChild(false);
+    setChildForm({ name: '', username: '', password: '', age: '', grade: '' });
+    fetchChildren();
+  } else {
+    if (data.message?.includes('username')) setUsernameError(data.message);
+    else notify(data.message || 'Failed', 'error');
+  }
+};
 
   const handleUploadLesson = async () => {
     if (!pdfFile || !lessonForm.title) { notify('Title and PDF are required', 'error'); return; }
@@ -123,6 +138,19 @@ export default function ParentDashboard() {
       setLessonForm({ title: '', subject: 'math', level: 'beginner', description: '' });
       fetchLessons();
     } else notify(data.message || 'Upload failed', 'error');
+  };
+
+
+  const handleDeleteChild = async (childId: string, childName: string) => {
+    if (!confirm(`Delete ${childName}'s account? This cannot be undone.`)) return;
+    const token = localStorage.getItem('accessToken');
+    const res = await fetch(`/api/auth/delete-student/${childId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (data.success) { notify('Student account deleted'); fetchChildren(); }
+    else notify(data.message || 'Failed', 'error');
   };
 
   const handleDeleteLesson = async (id: string) => {
@@ -314,10 +342,16 @@ export default function ParentDashboard() {
                         <span className="bg-white/5 text-[#8892B0] px-2 py-1 rounded-lg">Age {child.age || 'N/A'}</span>
                         <span className="bg-green-500/10 text-green-400 px-2 py-1 rounded-lg capitalize">{child.currentLevel || 'beginner'}</span>
                       </div>
-                      <button onClick={() => { setSelectedChild(child); fetchChildProgress(child._id); setTab('progress'); }}
-                        className="w-full flex items-center justify-center gap-2 bg-white/5 hover:bg-[#F5A623]/10 hover:text-[#F5A623] border border-white/10 hover:border-[#F5A623]/30 text-sm font-medium py-2.5 rounded-xl transition-all">
-                        View Progress <ChevronRight size={16} />
-                      </button>
+                      <div className="flex gap-2 mt-1">
+                        <button onClick={() => { setSelectedChild(child); fetchChildProgress(child._id); setTab('progress'); }}
+                          className="flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-[#F5A623]/10 hover:text-[#F5A623] border border-white/10 hover:border-[#F5A623]/30 text-sm font-medium py-2.5 rounded-xl transition-all">
+                          View Progress <ChevronRight size={16} />
+                        </button>
+                        <button onClick={() => handleDeleteChild(child._id, child.name || child.username)}
+                          className="w-10 flex items-center justify-center bg-white/5 hover:bg-red-500/10 hover:text-red-400 border border-white/10 hover:border-red-500/30 rounded-xl transition-all">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -514,7 +548,7 @@ export default function ParentDashboard() {
                 </div>
                 <div>
                   <label className={labelClass}>Username <span className="text-[#8892B0] normal-case font-normal">(for login)</span></label>
-                  <input placeholder="e.g. amina_2015" value={childForm.username}
+                  <input name="childUsername" autoComplete="off" placeholder="e.g. amina_2015" value={childForm.username}
                     onChange={e => { setChildForm({ ...childForm, username: e.target.value }); setUsernameError(''); }}
                     className={`${inputClass} ${usernameError ? 'border-red-500' : ''}`} />
                   {usernameError && <p className="text-red-400 text-xs mt-1">{usernameError}</p>}
@@ -522,7 +556,7 @@ export default function ParentDashboard() {
                 </div>
                 <div>
                   <label className={labelClass}>Password</label>
-                  <input type="password" placeholder="Min. 6 characters" value={childForm.password}
+                  <input name="childPassword" autoComplete="new-password" type="password" placeholder="Min. 6 characters" value={childForm.password}
                     onChange={e => setChildForm({ ...childForm, password: e.target.value })} className={inputClass} />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
