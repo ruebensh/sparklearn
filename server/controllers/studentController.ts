@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import Groq from 'groq-sdk';
 import StudentProfile from '../models/StudentProfile.js';
 import ChatSession from '../models/ChatSession.js';
 import QuizResult from '../models/QuizResult.js';
@@ -7,7 +7,7 @@ import Book from '../models/Book.js';
 import LessonPack from '../models/LessonPack.js';
 import { success, error } from '../utils/apiResponse.js';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // ── ONBOARDING ──
 export const saveOnboarding = async (req: Request, res: Response) => {
@@ -138,23 +138,20 @@ ${contextText ? `Darslik matni:\n${contextText}\n\nFaqat shu darslik asosida dar
 Har doim qiziqarli, qisqa va aniq tushuntir. Misollarni o'quvchi qiziqishlariga bog'la.
 Javobni ${langName} tilida ber.`;
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
-    const history = session.messages.slice(-10).map((m: any) => ({
-      role: m.role === 'user' ? 'user' : 'model',
-      parts: [{ text: m.content }],
+    const historyMessages = session.messages.slice(-10).map((m: any) => ({
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: m.content,
     }));
-
-    const chatSession = model.startChat({
-      history: [
-        { role: 'user', parts: [{ text: systemPrompt }] },
-        { role: 'model', parts: [{ text: `Yaxshi! Men ${langName} tilida ${grade}-sinf o'quvchisiga yordam beraman.` }] },
-        ...history,
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...historyMessages,
+        { role: 'user', content: message },
       ],
+      max_tokens: 1500,
     });
-
-    const result = await chatSession.sendMessage(message);
-    const aiResponse = result.response.text();
+    const aiResponse = completion.choices[0]?.message?.content || 'Javob topilmadi';
 
     session.messages.push({ role: 'user', content: message } as any);
     session.messages.push({ role: 'assistant', content: aiResponse } as any);
@@ -218,9 +215,12 @@ FAQAT JSON qaytargil:
   ]
 }`;
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-    const result = await model.generateContent(prompt);
-    const raw = result.response.text();
+    const quizCompletion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 2000,
+    });
+    const raw = quizCompletion.choices[0]?.message?.content || '';
     const clean = raw.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(clean);
 
